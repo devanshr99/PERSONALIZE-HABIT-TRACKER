@@ -1,6 +1,7 @@
 /**
  * Global app context — holds habits, completions, settings in memory.
  * All data flows through this context to avoid prop drilling.
+ * Scoped to the authenticated user from AuthContext.
  */
 import React, {
   createContext,
@@ -27,12 +28,14 @@ import {
   resetAllData
 } from '../services/db';
 import { scheduleReminder, clearReminder } from '../services/notifications';
+import { useAuth } from './AuthContext';
 
 interface AppContextValue {
   habits: Habit[];
   completions: Completion[];
   settings: AppSettings;
   loading: boolean;
+  error: string | null;
 
   // Habit actions
   addHabit: (habit: Omit<Habit, 'id' | 'createdAt' | 'order'>) => Promise<void>;
@@ -58,7 +61,20 @@ interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
+function generateUUID(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback RFC 4122 v4 UUID
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 export function AppProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [habits, setHabits] = useState<Habit[]>([]);
   const [completions, setCompletions] = useState<Completion[]>([]);
   const [settings, setSettings] = useState<AppSettings>({
@@ -67,28 +83,48 @@ export function AppProvider({ children }: { children: ReactNode }) {
     theme: 'system'
   });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
-    await seedDefaultHabits();
-    const [h, c, s] = await Promise.all([
-      getAllHabits(),
-      getAllCompletions(),
-      getSettings()
-    ]);
-    setHabits(h);
-    setCompletions(c);
-    setSettings(s);
-
-    // Apply theme
-    applyTheme(s.theme);
-
-    // Schedule notifications if enabled
-    if (s.notificationsEnabled) {
-      scheduleReminder(s.notificationTime);
+    if (!user) {
+      setHabits([]);
+      setCompletions([]);
+      setLoading(false);
+      return;
     }
 
-    setLoading(false);
-  }, []);
+    setLoading(true);
+    setError(null);
+
+    try {
+      // 1. Seed defaults if this user has 0 habits
+      await seedDefaultHabits(user.id);
+
+      // 2. Fetch habits, completions, and user settings
+      const [h, c, s] = await Promise.all([
+        getAllHabits(user.id),
+        getAllCompletions(user.id),
+        getSettings(user.id)
+      ]);
+
+      setHabits(h);
+      setCompletions(c);
+      setSettings(s);
+
+      // Apply theme
+      applyTheme(s.theme);
+
+      // Schedule notifications if enabled
+      if (s.notificationsEnabled) {
+        scheduleReminder(s.notificationTime);
+      }
+    } catch (err: any) {
+      console.error('Failed to load user data:', err);
+      setError(err?.message || 'Failed to load habits. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
 
   useEffect(() => {
     loadData();
@@ -96,69 +132,86 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [loadData]);
 
   const refresh = useCallback(async () => {
-    const [h, c] = await Promise.all([getAllHabits(), getAllCompletions()]);
-    setHabits(h);
-    setCompletions(c);
-  }, []);
+    if (!user) return;
+    try {
+      const [h, c] = await Promise.all([
+        getAllHabits(user.id),
+        getAllCompletions(user.id)
+      ]);
+      setHabits(h);
+      setCompletions(c);
+    } catch (err) {
+      console.error('Failed to refresh data:', err);
+    }
+  }, [user]);
 
   const addHabit = useCallback(
     async (habitData: Omit<Habit, 'id' | 'createdAt' | 'order'>) => {
-      const maxOrder = habits.reduce((max, h) => Math.max(max, h.order), -1);
+      if (!user) throw new Error('Not authenticated');
+
+      const maxOrder = habits.reduce((max, h) => Math.max(max, h.order ?? 0), -1);
       const newHabit: Habit = {
         ...habitData,
-        id: `habit-${Date.now()}`,
+        id: generateUUID(),
         createdAt: new Date().toISOString(),
         order: maxOrder + 1
       };
-      await saveHabit(newHabit);
+
+      await saveHabit(newHabit, user.id);
       await refresh();
     },
-    [habits, refresh]
+    [habits, refresh, user]
   );
 
   const updateHabit = useCallback(
     async (habit: Habit) => {
-      await saveHabit(habit);
+      if (!user) throw new Error('Not authenticated');
+      await saveHabit(habit, user.id);
       await refresh();
     },
-    [refresh]
+    [refresh, user]
   );
 
   const removeHabit = useCallback(
     async (id: string) => {
-      await dbDeleteHabit(id);
+      if (!user) throw new Error('Not authenticated');
+      await dbDeleteHabit(id, user.id);
       await refresh();
     },
-    [refresh]
+    [refresh, user]
   );
 
   const reorderHabits = useCallback(
     async (orderedIds: string[]) => {
-      await dbReorderHabits(orderedIds);
+      if (!user) throw new Error('Not authenticated');
+      await dbReorderHabits(orderedIds, user.id);
       await refresh();
     },
-    [refresh]
+    [refresh, user]
   );
 
   const toggleCompletion = useCallback(
     async (habitId: string, date?: string) => {
-      await dbToggle(habitId, date);
+      if (!user) throw new Error('Not authenticated');
+      await dbToggle(habitId, user.id, date);
       await refresh();
     },
-    [refresh]
+    [refresh, user]
   );
 
   const setCompletion = useCallback(
     async (habitId: string, date: string, completed: boolean) => {
-      await dbSetCompletion(habitId, date, completed);
+      if (!user) throw new Error('Not authenticated');
+      await dbSetCompletion(habitId, user.id, date, completed);
       await refresh();
     },
-    [refresh]
+    [refresh, user]
   );
 
   const updateSettings = useCallback(
     async (newSettings: AppSettings) => {
-      await saveSettings(newSettings);
+      if (!user) return;
+      await saveSettings(user.id, newSettings);
       setSettings(newSettings);
       applyTheme(newSettings.theme);
 
@@ -168,25 +221,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
         clearReminder();
       }
     },
-    []
+    [user]
   );
 
   const handleExport = useCallback(async () => {
-    return exportData();
-  }, []);
+    if (!user) throw new Error('Not authenticated');
+    return exportData(user.id);
+  }, [user]);
 
   const handleImport = useCallback(
     async (json: string) => {
-      await importData(json);
+      if (!user) throw new Error('Not authenticated');
+      await importData(json, user.id);
       await loadData();
     },
-    [loadData]
+    [loadData, user]
   );
 
   const resetData = useCallback(async () => {
-    await resetAllData();
+    if (!user) return;
+    await resetAllData(user.id);
     await loadData();
-  }, [loadData]);
+  }, [loadData, user]);
 
   return (
     <AppContext.Provider
@@ -195,6 +251,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         completions,
         settings,
         loading,
+        error,
         addHabit,
         updateHabit,
         removeHabit,
@@ -226,7 +283,6 @@ function applyTheme(theme: AppSettings['theme']) {
   } else if (theme === 'light') {
     root.setAttribute('data-theme', 'light');
   } else {
-    // System: use prefers-color-scheme
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     root.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
   }

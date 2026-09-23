@@ -40,7 +40,7 @@ export default function History() {
         {historyDates.map(date => {
           // Include active habits created by this date + any inactive habit that was completed on this date
           const dateHabits = habits.filter(
-            h => (h.active && h.createdAt.slice(0, 10) <= date) ||
+            h => (h.active && (!h.createdAt || (h.createdAt || '').slice(0, 10) <= date)) ||
                  (!h.active && isCompletedOn(completions, h.id, date))
           );
           const completedCount = dateHabits.filter(h =>

@@ -285,7 +285,8 @@ export function calculateConsistency(
   for (const day of days) {
     for (const habit of activeHabits) {
       // Only count days since habit was created
-      if (day >= habit.createdAt.slice(0, 10)) {
+      const habitCreatedDay = (habit.createdAt || '').slice(0, 10);
+      if (!habitCreatedDay || day >= habitCreatedDay) {
         totalSlots++;
         if (isCompletedOn(completions, habit.id, day)) {
           completedSlots++;
@@ -345,9 +346,9 @@ export function getHistoryDates(
   let start = today();
   if (habits.length > 0) {
     const earliestHabit = habits.reduce((earliest, h) =>
-      h.createdAt < earliest.createdAt ? h : earliest
+      (h.createdAt || '') < (earliest.createdAt || '') ? h : earliest
     );
-    start = earliestHabit.createdAt.slice(0, 10);
+    start = (earliestHabit.createdAt || today()).slice(0, 10) || today();
   }
 
   for (const c of completions) {
@@ -382,7 +383,7 @@ export function getWeeklyChartData(
   return Array.from({ length: 7 }, (_, i) => {
     const date = daysAgo(6 - i);
     const dayHabits = activeHabits.filter(
-      h => h.createdAt.slice(0, 10) <= date
+      h => !h.createdAt || (h.createdAt || '').slice(0, 10) <= date
     );
     const total = dayHabits.length;
     const completed = dayHabits.filter(h =>

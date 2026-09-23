@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
+import { useAuth } from '../context/AuthContext';
 import HabitCard from '../components/HabitCard';
 import ProgressCard from '../components/ProgressCard';
 import { Toast, useToast } from '../components/Toast';
@@ -12,10 +13,12 @@ interface HomeProps {
 }
 
 export default function Home({ onOpenDetail }: HomeProps) {
+  const { user } = useAuth();
   const { habits, completions, toggleCompletion } = useApp();
   const { toast, show: showToast, clear: clearToast } = useToast();
   const prevStreaks = useRef<Record<string, number>>({});
 
+  const firstName = user?.name ? user.name.trim().split(' ')[0] : 'there';
   const activeHabits = habits.filter(h => h.active);
 
   const handleToggle = useCallback(
@@ -48,7 +51,7 @@ export default function Home({ onOpenDetail }: HomeProps) {
         {toast && <Toast message={toast} onDone={clearToast} />}
 
         <header className="page-header">
-          <h1 className="page-greeting">{getGreeting()}, Devansh 👋</h1>
+          <h1 className="page-greeting">{getGreeting()}, {firstName} 👋</h1>
           <p className="page-date">{getTodayDisplay()}</p>
           <p className="page-subtitle">Small progress every day.</p>
         </header>

@@ -1,103 +1,164 @@
 /**
  * Database service for Streakly — Supabase backend.
- * All queries are automatically scoped to the authenticated user via RLS.
- * INSERT operations include user_id explicitly.
+ * All queries are explicitly scoped to the authenticated user's user_id and Supabase RLS.
+ * INSERT / UPSERT operations include user_id explicitly.
  */
 import { supabase } from './supabase';
 import type { Habit, Completion, AppSettings } from '../types';
 import { today } from '../utils/dateUtils';
 
+function isValidUuid(id: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+}
+
 // ─── Habits ───────────────────────────────────────────────────────────────────
 
-export async function getAllHabits(): Promise<Habit[]> {
-  const { data, error } = await supabase
+export async function getAllHabits(userId?: string): Promise<Habit[]> {
+  let query = supabase
     .from('habits')
     .select('*')
     .order('order', { ascending: true });
 
-  if (error) throw error;
+  if (userId) {
+    query = query.eq('user_id', userId);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    console.error('Supabase error fetching habits:', error);
+    throw error;
+  }
 
   return (data ?? []).map(mapHabitFromDb);
 }
 
-export async function getActiveHabits(): Promise<Habit[]> {
-  const habits = await getAllHabits();
+export async function getActiveHabits(userId?: string): Promise<Habit[]> {
+  const habits = await getAllHabits(userId);
   return habits.filter(h => h.active);
 }
 
-export async function getHabit(id: string): Promise<Habit | undefined> {
-  const { data, error } = await supabase
+export async function getHabit(id: string, userId?: string): Promise<Habit | undefined> {
+  let query = supabase
     .from('habits')
     .select('*')
-    .eq('id', id)
-    .single();
+    .eq('id', id);
 
+  if (userId) {
+    query = query.eq('user_id', userId);
+  }
+
+  const { data, error } = await query.single();
   if (error || !data) return undefined;
   return mapHabitFromDb(data);
 }
 
 export async function saveHabit(habit: Habit, userId: string): Promise<void> {
-  const { error } = await supabase.from('habits').upsert({
-    id: habit.id,
+  if (!userId) throw new Error('Cannot save habit without an authenticated user');
+
+  const record: Record<string, any> = {
     user_id: userId,
-    name: habit.name,
-    icon: habit.icon,
-    active: habit.active,
-    order: habit.order,
-    created_at: habit.createdAt,
+    name: habit.name.trim(),
+    icon: habit.icon || '✨',
+    active: habit.active ?? true,
+    order: habit.order ?? 0,
+    created_at: habit.createdAt || new Date().toISOString(),
+  };
+
+  if (habit.id && isValidUuid(habit.id)) {
+    record.id = habit.id;
+  }
+
+  const { error } = await supabase.from('habits').upsert(record);
+  if (error) {
+    console.error('Supabase error saving habit:', error);
+    throw error;
+  }
+}
+
+export async function deleteHabit(id: string, userId?: string): Promise<void> {
+  let compQuery = supabase.from('habit_completions').delete().eq('habit_id', id);
+  if (userId) compQuery = compQuery.eq('user_id', userId);
+  const { error: compError } = await compQuery;
+  if (compError) console.error('Supabase error deleting habit completions:', compError);
+
+  let habitQuery = supabase.from('habits').delete().eq('id', id);
+  if (userId) habitQuery = habitQuery.eq('user_id', userId);
+  const { error } = await habitQuery;
+  if (error) {
+    console.error('Supabase error deleting habit:', error);
+    throw error;
+  }
+}
+
+export async function reorderHabits(orderedIds: string[], userId?: string): Promise<void> {
+  const updates = orderedIds.map((id, index) => {
+    let q = supabase.from('habits').update({ order: index }).eq('id', id);
+    if (userId) q = q.eq('user_id', userId);
+    return q;
   });
-
-  if (error) throw error;
-}
-
-export async function deleteHabit(id: string): Promise<void> {
-  // Completions are cascade-deleted by FK, but let's be explicit
-  await supabase.from('habit_completions').delete().eq('habit_id', id);
-  const { error } = await supabase.from('habits').delete().eq('id', id);
-  if (error) throw error;
-}
-
-export async function reorderHabits(orderedIds: string[]): Promise<void> {
-  // Update each habit's order
-  const updates = orderedIds.map((id, index) =>
-    supabase.from('habits').update({ order: index }).eq('id', id)
-  );
-  await Promise.all(updates);
+  const results = await Promise.all(updates);
+  for (const res of results) {
+    if (res.error) {
+      console.error('Supabase error updating habit order:', res.error);
+      throw res.error;
+    }
+  }
 }
 
 // ─── Completions ──────────────────────────────────────────────────────────────
 
-export async function getAllCompletions(): Promise<Completion[]> {
-  const { data, error } = await supabase
-    .from('habit_completions')
-    .select('*');
+export async function getAllCompletions(userId?: string): Promise<Completion[]> {
+  let query = supabase.from('habit_completions').select('*');
+  if (userId) {
+    query = query.eq('user_id', userId);
+  }
 
-  if (error) throw error;
+  const { data, error } = await query;
+  if (error) {
+    console.error('Supabase error fetching habit completions:', error);
+    throw error;
+  }
   return (data ?? []).map(mapCompletionFromDb);
 }
 
-export async function getCompletionsForHabit(habitId: string): Promise<Completion[]> {
-  const { data, error } = await supabase
+export async function getCompletionsForHabit(habitId: string, userId?: string): Promise<Completion[]> {
+  let query = supabase
     .from('habit_completions')
     .select('*')
     .eq('habit_id', habitId);
 
-  if (error) throw error;
+  if (userId) {
+    query = query.eq('user_id', userId);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    console.error('Supabase error fetching completions for habit:', error);
+    throw error;
+  }
   return (data ?? []).map(mapCompletionFromDb);
 }
 
 export async function getCompletionForDate(
   habitId: string,
-  date: string
+  date: string,
+  userId?: string
 ): Promise<Completion | undefined> {
-  const { data, error } = await supabase
+  let query = supabase
     .from('habit_completions')
     .select('*')
     .eq('habit_id', habitId)
-    .eq('date', date)
-    .maybeSingle();
+    .eq('date', date);
 
-  if (error) throw error;
+  if (userId) {
+    query = query.eq('user_id', userId);
+  }
+
+  const { data, error } = await query.maybeSingle();
+  if (error) {
+    console.error('Supabase error fetching completion for date:', error);
+    throw error;
+  }
   return data ? mapCompletionFromDb(data) : undefined;
 }
 
@@ -110,26 +171,39 @@ export async function toggleCompletion(
   userId: string,
   date: string = today()
 ): Promise<boolean> {
-  const existing = await getCompletionForDate(habitId, date);
+  if (!userId) throw new Error('Cannot toggle completion without an authenticated user');
+
+  const existing = await getCompletionForDate(habitId, date, userId);
 
   if (existing) {
     const newState = !existing.completed;
-    await supabase
+    const { error } = await supabase
       .from('habit_completions')
       .update({
         completed: newState,
         completed_at: new Date().toISOString(),
       })
-      .eq('id', existing.id);
+      .eq('id', existing.id)
+      .eq('user_id', userId);
+
+    if (error) {
+      console.error('Supabase error updating completion:', error);
+      throw error;
+    }
     return newState;
   } else {
-    await supabase.from('habit_completions').insert({
+    const { error } = await supabase.from('habit_completions').insert({
       user_id: userId,
       habit_id: habitId,
       date,
       completed: true,
       completed_at: new Date().toISOString(),
     });
+
+    if (error) {
+      console.error('Supabase error inserting completion:', error);
+      throw error;
+    }
     return true;
   }
 }
@@ -143,24 +217,37 @@ export async function setCompletion(
   date: string,
   completed: boolean
 ): Promise<void> {
-  const existing = await getCompletionForDate(habitId, date);
+  if (!userId) throw new Error('Cannot set completion without an authenticated user');
+
+  const existing = await getCompletionForDate(habitId, date, userId);
 
   if (existing) {
-    await supabase
+    const { error } = await supabase
       .from('habit_completions')
       .update({
         completed,
         completed_at: new Date().toISOString(),
       })
-      .eq('id', existing.id);
+      .eq('id', existing.id)
+      .eq('user_id', userId);
+
+    if (error) {
+      console.error('Supabase error updating completion:', error);
+      throw error;
+    }
   } else if (completed) {
-    await supabase.from('habit_completions').insert({
+    const { error } = await supabase.from('habit_completions').insert({
       user_id: userId,
       habit_id: habitId,
       date,
       completed: true,
       completed_at: new Date().toISOString(),
     });
+
+    if (error) {
+      console.error('Supabase error inserting completion:', error);
+      throw error;
+    }
   }
 }
 
@@ -173,13 +260,20 @@ const DEFAULT_SETTINGS: AppSettings = {
 };
 
 export async function getSettings(userId: string): Promise<AppSettings> {
+  if (!userId) return DEFAULT_SETTINGS;
+
   const { data, error } = await supabase
     .from('user_settings')
     .select('*')
     .eq('user_id', userId)
     .maybeSingle();
 
-  if (error || !data) return DEFAULT_SETTINGS;
+  if (error) {
+    console.error('Supabase error getting settings:', error);
+    return DEFAULT_SETTINGS;
+  }
+
+  if (!data) return DEFAULT_SETTINGS;
 
   return {
     notificationsEnabled: data.notifications_enabled ?? false,
@@ -189,6 +283,8 @@ export async function getSettings(userId: string): Promise<AppSettings> {
 }
 
 export async function saveSettings(userId: string, settings: AppSettings): Promise<void> {
+  if (!userId) return;
+
   const { error } = await supabase.from('user_settings').upsert({
     user_id: userId,
     notifications_enabled: settings.notificationsEnabled,
@@ -197,15 +293,18 @@ export async function saveSettings(userId: string, settings: AppSettings): Promi
     updated_at: new Date().toISOString(),
   });
 
-  if (error) throw error;
+  if (error) {
+    console.error('Supabase error saving settings:', error);
+    throw error;
+  }
 }
 
 // ─── Data Export / Import ─────────────────────────────────────────────────────
 
 export async function exportData(userId: string): Promise<string> {
   const [habits, completions, settings] = await Promise.all([
-    getAllHabits(),
-    getAllCompletions(),
+    getAllHabits(userId),
+    getAllCompletions(userId),
     getSettings(userId),
   ]);
 
@@ -228,6 +327,8 @@ export async function exportData(userId: string): Promise<string> {
 }
 
 export async function importData(jsonStr: string, userId: string): Promise<void> {
+  if (!userId) throw new Error('Cannot import data without an authenticated user');
+
   let data: {
     version?: number;
     habits?: any[];
@@ -264,20 +365,19 @@ export async function importData(jsonStr: string, userId: string): Promise<void>
   }
 
   // Re-fetch habits to get their new IDs for completion mapping
-  const newHabits = await getAllHabits();
+  const newHabits = await getAllHabits(userId);
   const habitNameMap = new Map(newHabits.map(h => [h.name, h.id]));
 
-  // Import completions (map by habit name since IDs may differ)
+  // Import completions
   if (data.completions && Array.isArray(data.completions)) {
     for (const completion of data.completions) {
-      // Try to find matching habit by original habit reference
       const oldHabit = data.habits.find(h =>
         h.id === completion.habitId || h.id === completion.habit_id
       );
       const habitName = oldHabit?.name;
       const newHabitId = habitName ? habitNameMap.get(habitName) : null;
 
-      if (newHabitId && (completion.date || completion.date)) {
+      if (newHabitId && completion.date) {
         await supabase.from('habit_completions').upsert({
           user_id: userId,
           habit_id: newHabitId,
@@ -296,6 +396,7 @@ export async function importData(jsonStr: string, userId: string): Promise<void>
 }
 
 export async function resetAllData(userId: string): Promise<void> {
+  if (!userId) return;
   await supabase.from('habit_completions').delete().eq('user_id', userId);
   await supabase.from('habits').delete().eq('user_id', userId);
   await supabase.from('user_settings').delete().eq('user_id', userId);
@@ -304,31 +405,46 @@ export async function resetAllData(userId: string): Promise<void> {
 // ─── Seed Default Habits ──────────────────────────────────────────────────────
 
 export const DEFAULT_HABITS: Array<{ name: string; icon: string }> = [
-  { name: 'Yoga', icon: '🧘' },
-  { name: 'LeetCode', icon: '💻' },
-  { name: 'Drink 3L Water', icon: '💧' },
-  { name: 'Gym', icon: '🏋️' },
+  { name: 'Drink Water', icon: '💧' },
+  { name: 'Exercise', icon: '🏋️' },
+  { name: 'Read', icon: '📚' },
+  { name: 'Sleep on Time', icon: '🌙' },
 ];
 
 export async function seedDefaultHabits(userId: string): Promise<void> {
+  if (!userId) return;
+
   // Check if user already has any habits
-  const { count } = await supabase
+  const { count, error: countError } = await supabase
     .from('habits')
     .select('*', { count: 'exact', head: true })
     .eq('user_id', userId);
 
+  if (countError) {
+    console.error('Supabase error checking habits count:', countError);
+    throw countError;
+  }
+
+  // If user already has habits, do not add duplicates
   if (count && count > 0) return;
 
   const now = new Date().toISOString();
-  for (let i = 0; i < DEFAULT_HABITS.length; i++) {
-    await supabase.from('habits').insert({
-      user_id: userId,
-      name: DEFAULT_HABITS[i].name,
-      icon: DEFAULT_HABITS[i].icon,
-      active: true,
-      order: i,
-      created_at: now,
-    });
+  const defaultRecords = DEFAULT_HABITS.map((item, index) => ({
+    user_id: userId,
+    name: item.name,
+    icon: item.icon,
+    active: true,
+    order: index,
+    created_at: now,
+  }));
+
+  const { error: insertError } = await supabase
+    .from('habits')
+    .insert(defaultRecords);
+
+  if (insertError) {
+    console.error('Supabase error inserting default habits:', insertError);
+    throw insertError;
   }
 }
 
@@ -336,21 +452,21 @@ export async function seedDefaultHabits(userId: string): Promise<void> {
 
 function mapHabitFromDb(row: any): Habit {
   return {
-    id: row.id,
-    name: row.name,
-    icon: row.icon,
-    active: row.active,
-    order: row.order,
-    createdAt: row.created_at,
+    id: String(row.id),
+    name: row.name || 'Untitled Habit',
+    icon: row.icon || '✨',
+    active: row.active ?? true,
+    order: typeof row.order === 'number' ? row.order : 0,
+    createdAt: row.created_at || new Date().toISOString(),
   };
 }
 
 function mapCompletionFromDb(row: any): Completion {
   return {
-    id: row.id,
-    habitId: row.habit_id,
+    id: String(row.id),
+    habitId: String(row.habit_id),
     date: row.date,
-    completed: row.completed,
-    completedAt: row.completed_at,
+    completed: row.completed ?? true,
+    completedAt: row.completed_at || new Date().toISOString(),
   };
 }

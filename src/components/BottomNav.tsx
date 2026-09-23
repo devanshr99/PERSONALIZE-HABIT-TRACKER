@@ -20,6 +20,7 @@ export default function BottomNav({ active, onChange }: BottomNavProps) {
         {TABS.map(tab => (
           <button
             key={tab.id}
+            type="button"
             className={`nav-item ${active === tab.id ? 'active' : ''}`}
             onClick={() => onChange(tab.id)}
             aria-label={tab.label}

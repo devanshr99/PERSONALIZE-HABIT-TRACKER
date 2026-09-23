@@ -1,21 +1,35 @@
 import React, { useState, useRef } from 'react';
 import { useApp } from '../context/AppContext';
+import { useAuth } from '../context/AuthContext';
 import type { AppSettings } from '../types';
 import {
   requestNotificationPermission,
   getNotificationPermission
 } from '../services/notifications';
 
+const COMMON_ICONS = [
+  '🧘', '💻', '💧', '🏋️', '📚', '🏃', '🧠', '🗣️', '😴',
+  '🎸', '✍️', '🥗', '🌿', '🎯', '💪', '🍎', '🌙', '☀️'
+];
+
 interface SettingsProps {
   onManageHabits: () => void;
 }
 
 export default function Settings({ onManageHabits }: SettingsProps) {
-  const { settings, updateSettings, exportData, importData, resetData } =
-    useApp();
+  const { user, signOut } = useAuth();
+  const { settings, updateSettings, addHabit, exportData, importData, resetData } = useApp();
+
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newHabitName, setNewHabitName] = useState('');
+  const [newHabitIcon, setNewHabitIcon] = useState('✨');
+  const [showIconPicker, setShowIconPicker] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importSuccess, setImportSuccess] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleThemeChange = async (theme: AppSettings['theme']) => {
@@ -40,6 +54,19 @@ export default function Settings({ onManageHabits }: SettingsProps) {
 
   const handleTimeChange = async (time: string) => {
     await updateSettings({ ...settings, notificationTime: time });
+  };
+
+  const handleAddHabitSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newHabitName.trim()) return;
+    await addHabit({
+      name: newHabitName.trim(),
+      icon: newHabitIcon,
+      active: true,
+    });
+    setNewHabitName('');
+    setNewHabitIcon('✨');
+    setShowAddModal(false);
   };
 
   const handleExport = async () => {
@@ -77,13 +104,24 @@ export default function Settings({ onManageHabits }: SettingsProps) {
       );
     }
 
-    // Reset input
     e.target.value = '';
   };
 
   const handleReset = async () => {
     await resetData();
     setShowResetConfirm(false);
+  };
+
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await signOut();
+    } catch (err) {
+      console.error('Logout error:', err);
+    } finally {
+      setLoggingOut(false);
+      setShowLogoutConfirm(false);
+    }
   };
 
   const notifPermission = getNotificationPermission();
@@ -96,7 +134,41 @@ export default function Settings({ onManageHabits }: SettingsProps) {
             <h1 style={{ fontSize: 22, fontWeight: 700 }}>Settings</h1>
           </div>
 
-          {/* Habits */}
+          {/* Account Profile Section */}
+          {user && (
+            <div className="card card-padded" style={{ marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <div
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: '50%',
+                    background: 'var(--accent-dim)',
+                    color: 'var(--accent)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 20,
+                    fontWeight: 700,
+                    flexShrink: 0
+                  }}
+                  aria-hidden="true"
+                >
+                  {user.name ? user.name.charAt(0).toUpperCase() : '👤'}
+                </div>
+                <div style={{ flex: 1, overflow: 'hidden' }}>
+                  <div style={{ fontWeight: 600, fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {user.name || 'Streakly Member'}
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {user.email}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Habits Management */}
           <div className="section-title" style={{ marginBottom: 8 }}>Habits</div>
           <div className="settings-section" style={{ marginBottom: 20 }}>
             <div
@@ -112,7 +184,25 @@ export default function Settings({ onManageHabits }: SettingsProps) {
               <span className="settings-row-icon">🎯</span>
               <div className="settings-row-content">
                 <div className="settings-row-title">Manage Habits</div>
-                <div className="settings-row-subtitle">Add, edit, reorder, or deactivate habits</div>
+                <div className="settings-row-subtitle">Edit, delete, reorder, or toggle active</div>
+              </div>
+              <span className="settings-row-right">›</span>
+            </div>
+
+            <div
+              className="settings-row"
+              onClick={() => setShowAddModal(true)}
+              role="button"
+              tabIndex={0}
+              id="settings-add-habit"
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') setShowAddModal(true);
+              }}
+            >
+              <span className="settings-row-icon">➕</span>
+              <div className="settings-row-content">
+                <div className="settings-row-title">Add New Habit</div>
+                <div className="settings-row-subtitle">Create a new habit to track daily</div>
               </div>
               <span className="settings-row-right">›</span>
             </div>
@@ -198,7 +288,7 @@ export default function Settings({ onManageHabits }: SettingsProps) {
             )}
           </div>
 
-          {/* Data */}
+          {/* Data Export / Import */}
           <div className="section-title" style={{ marginBottom: 8 }}>Data</div>
           <div className="settings-section" style={{ marginBottom: 20 }}>
             <div
@@ -244,8 +334,27 @@ export default function Settings({ onManageHabits }: SettingsProps) {
             </div>
           </div>
 
-          {/* Danger Zone */}
+          {/* Account Actions / Logout */}
+          <div className="section-title" style={{ marginBottom: 8 }}>Account</div>
           <div className="settings-section" style={{ marginBottom: 20 }}>
+            <div
+              className="settings-row"
+              onClick={() => setShowLogoutConfirm(true)}
+              role="button"
+              tabIndex={0}
+              id="settings-logout"
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') setShowLogoutConfirm(true);
+              }}
+            >
+              <span className="settings-row-icon">🚪</span>
+              <div className="settings-row-content">
+                <div className="settings-row-title">Log Out</div>
+                <div className="settings-row-subtitle">Sign out of your Streakly account</div>
+              </div>
+              <span className="settings-row-right">›</span>
+            </div>
+
             <div
               className="settings-row settings-row-danger"
               onClick={() => setShowResetConfirm(true)}
@@ -259,14 +368,14 @@ export default function Settings({ onManageHabits }: SettingsProps) {
               <span className="settings-row-icon">⚠️</span>
               <div className="settings-row-content">
                 <div className="settings-row-title">Reset All Data</div>
-                <div className="settings-row-subtitle">Permanently delete everything</div>
+                <div className="settings-row-subtitle">Permanently delete your habits and history</div>
               </div>
               <span className="settings-row-right" style={{ color: 'var(--danger)' }}>›</span>
             </div>
           </div>
 
           <p style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', marginTop: 8 }}>
-            Streakly v1.0 · Local-first · No account needed
+            Streakly · Habit Streak Tracker
           </p>
 
           <div style={{ height: 16 }} />
@@ -283,6 +392,113 @@ export default function Settings({ onManageHabits }: SettingsProps) {
         aria-label="Import data file"
       />
 
+      {/* Add Habit Modal */}
+      {showAddModal && (
+        <div className="modal-overlay" onClick={() => setShowAddModal(false)}>
+          <div className="modal-sheet" onClick={e => e.stopPropagation()}>
+            <div className="modal-handle" />
+            <div className="modal-title">New Habit</div>
+
+            <form onSubmit={handleAddHabitSubmit}>
+              <div className="form-group" style={{ marginBottom: 16 }}>
+                <label htmlFor="settings-new-habit-name">Habit Name</label>
+                <input
+                  id="settings-new-habit-name"
+                  type="text"
+                  value={newHabitName}
+                  onChange={e => setNewHabitName(e.target.value)}
+                  placeholder="e.g. Read 20 mins"
+                  autoFocus
+                  maxLength={40}
+                  required
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 20 }}>
+                <label>Icon</label>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setShowIconPicker(p => !p)}
+                  style={{ justifyContent: 'flex-start', gap: 10 }}
+                  id="settings-icon-picker-btn"
+                >
+                  <span style={{ fontSize: 22 }}>{newHabitIcon}</span>
+                  <span>Choose icon</span>
+                </button>
+
+                {showIconPicker && (
+                  <div className="icon-grid" style={{ marginTop: 8 }}>
+                    {COMMON_ICONS.map(ic => (
+                      <button
+                        key={ic}
+                        type="button"
+                        className={`icon-option ${ic === newHabitIcon ? 'selected' : ''}`}
+                        onClick={() => { setNewHabitIcon(ic); setShowIconPicker(false); }}
+                        aria-label={`Select icon ${ic}`}
+                      >
+                        {ic}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-full"
+                  onClick={() => setShowAddModal(false)}
+                  id="settings-add-cancel"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-full"
+                  disabled={!newHabitName.trim()}
+                  id="settings-add-save"
+                >
+                  Create Habit
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Logout Confirm Modal */}
+      {showLogoutConfirm && (
+        <div className="modal-overlay" onClick={() => setShowLogoutConfirm(false)}>
+          <div className="modal-sheet" onClick={e => e.stopPropagation()}>
+            <div className="modal-handle" />
+            <div className="modal-title">Log Out?</div>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: 20, fontSize: 14 }}>
+              Are you sure you want to log out of your account?
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-full"
+                onClick={() => setShowLogoutConfirm(false)}
+                id="logout-cancel-btn"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger btn-full"
+                onClick={handleLogout}
+                disabled={loggingOut}
+                id="logout-confirm-btn"
+              >
+                {loggingOut ? 'Logging out...' : 'Log Out'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Reset Confirm Modal */}
       {showResetConfirm && (
         <div className="modal-overlay" onClick={() => setShowResetConfirm(false)}>
@@ -294,6 +510,7 @@ export default function Settings({ onManageHabits }: SettingsProps) {
             </p>
             <div style={{ display: 'flex', gap: 10 }}>
               <button
+                type="button"
                 className="btn btn-secondary btn-full"
                 onClick={() => setShowResetConfirm(false)}
                 id="reset-cancel-btn"
@@ -301,6 +518,7 @@ export default function Settings({ onManageHabits }: SettingsProps) {
                 Cancel
               </button>
               <button
+                type="button"
                 className="btn btn-danger btn-full"
                 onClick={handleReset}
                 id="reset-confirm-btn"

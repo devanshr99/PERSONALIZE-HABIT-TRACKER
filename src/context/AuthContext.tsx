@@ -11,6 +11,7 @@ import React, {
   type ReactNode
 } from 'react';
 import { supabase } from '../services/supabase';
+import { seedDefaultHabits } from '../services/db';
 import type { User, Session } from '@supabase/supabase-js';
 
 export interface UserProfile {
@@ -121,6 +122,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .from('profiles')
         .update({ name })
         .eq('id', data.user.id);
+
+      // Seed default habits for the new user immediately once
+      try {
+        await seedDefaultHabits(data.user.id);
+        localStorage.setItem(`streakly_seeded_${data.user.id}`, 'true');
+      } catch (seedErr) {
+        console.error('Error seeding default habits on sign up:', seedErr);
+      }
 
       const profile = await buildProfile(data.user);
       setUser(profile);

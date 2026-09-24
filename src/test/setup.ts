@@ -1,3 +1,16 @@
-// Test setup file
-// @testing-library/jest-dom matchers are loaded here for component tests
-// For pure unit tests (like streak engine), no DOM setup is needed
+import '@testing-library/jest-dom/vitest';
+
+// Polyfill window.matchMedia for JSDOM
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  }),
+});

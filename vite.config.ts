@@ -9,8 +9,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'icons/*.png'],
       manifest: {
-        name: 'Streakly — Habit Tracker',
-        short_name: 'Streakly',
+        name: 'Habit Streak Tracker',
+        short_name: 'Habit Tracker',
         description: 'Personal habit and streak tracking app',
         theme_color: '#f97316',
         background_color: '#0f0f0f',
@@ -20,13 +20,13 @@ export default defineConfig({
         scope: '/',
         icons: [
           {
-            src: 'icons/icon-192.png',
+            src: '/icons/icon-192.png',
             sizes: '192x192',
             type: 'image/png',
             purpose: 'any maskable'
           },
           {
-            src: 'icons/icon-512.png',
+            src: '/icons/icon-512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any maskable'

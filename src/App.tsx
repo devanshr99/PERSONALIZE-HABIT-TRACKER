@@ -8,14 +8,16 @@ import Stats from './pages/Stats';
 import Settings from './pages/Settings';
 import HabitDetail from './pages/HabitDetail';
 import ManageHabits from './pages/ManageHabits';
+import Landing from './pages/Landing';
 import Auth from './pages/Auth';
 import InstallPrompt from './components/InstallPrompt';
+import { PwaProvider } from './context/PwaContext';
 import type { TabName, Habit } from './types';
 
 function AppShell() {
   const { user, loading: authLoading } = useAuth();
   const { loading: appLoading, error: appError, refresh } = useApp();
-  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  const [authView, setAuthView] = useState<'login' | 'signup' | 'landing'>('login');
   const [activeTab, setActiveTab] = useState<TabName>('home');
   const [selectedHabit, setSelectedHabit] = useState<Habit | null>(null);
   const [showManageHabits, setShowManageHabits] = useState(false);
@@ -25,18 +27,27 @@ function AppShell() {
     return (
       <div className="loading-screen" role="status" aria-label="Loading authentication">
         <div className="loading-icon">🔥</div>
-        <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Loading Streakly...</p>
+        <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Loading Habit Streak Tracker...</p>
       </div>
     );
   }
 
-  // 2. Unauthenticated: show Login / Signup screen
+  // 2. Unauthenticated: show Landing / Login / Create Account
   if (!user) {
+    if (authView === 'landing') {
+      return (
+        <Landing
+          onGetStarted={() => setAuthView('signup')}
+          onLogin={() => setAuthView('login')}
+        />
+      );
+    }
+
     return (
       <Auth
-        mode={authMode}
-        onToggleMode={() => setAuthMode(m => (m === 'login' ? 'signup' : 'login'))}
-        onBack={() => setAuthMode('login')}
+        mode={authView === 'signup' ? 'signup' : 'login'}
+        onToggleMode={() => setAuthView(v => (v === 'login' ? 'signup' : 'login'))}
+        onBack={() => setAuthView('landing')}
       />
     );
   }
@@ -130,7 +141,9 @@ export default function App() {
   return (
     <AuthProvider>
       <AppProvider>
-        <AppShell />
+        <PwaProvider>
+          <AppShell />
+        </PwaProvider>
       </AppProvider>
     </AuthProvider>
   );

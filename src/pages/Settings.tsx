@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
+import { usePwa } from '../context/PwaContext';
 import type { AppSettings } from '../types';
 import {
   requestNotificationPermission,
@@ -19,6 +20,7 @@ interface SettingsProps {
 export default function Settings({ onManageHabits }: SettingsProps) {
   const { user, signOut } = useAuth();
   const { settings, updateSettings, addHabit, exportData, importData, resetData } = useApp();
+  const { isInstalled, isInstallable, isIOS, promptInstall, setShowIOSModal } = usePwa();
 
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -286,6 +288,47 @@ export default function Settings({ onManageHabits }: SettingsProps) {
                 />
               </div>
             )}
+          </div>
+
+          {/* App / PWA Installation */}
+          <div className="section-title" style={{ marginBottom: 8 }}>App</div>
+          <div className="settings-section" style={{ marginBottom: 20 }}>
+            <div className="settings-row" id="settings-install-row">
+              <span className="settings-row-icon">📱</span>
+              <div className="settings-row-content">
+                <div className="settings-row-title">Install Habit Tracker</div>
+                <div className="settings-row-subtitle">
+                  {isInstalled
+                    ? 'App is installed on your device'
+                    : isIOS
+                    ? 'Add to iPhone or iPad Home Screen'
+                    : 'Install the app on your device for quick access'}
+                </div>
+              </div>
+              {isInstalled ? (
+                <span className="installed-badge" id="app-installed-badge">
+                  App Installed ✓
+                </span>
+              ) : isInstallable ? (
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={promptInstall}
+                  id="settings-install-btn"
+                >
+                  Install
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setShowIOSModal(true)}
+                  id="settings-install-help-btn"
+                >
+                  Instructions
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Data Export / Import */}

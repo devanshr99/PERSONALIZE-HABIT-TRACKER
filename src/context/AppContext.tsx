@@ -97,8 +97,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setError(null);
 
     try {
-      // 1. Seed defaults if this user has 0 habits
-      await seedDefaultHabits(user.id);
+      // 1. Seed defaults only once on first load for new users
+      const seedKey = `streakly_seeded_${user.id}`;
+      if (!localStorage.getItem(seedKey)) {
+        await seedDefaultHabits(user.id);
+        localStorage.setItem(seedKey, 'true');
+      }
 
       // 2. Fetch habits, completions, and user settings
       const [h, c, s] = await Promise.all([

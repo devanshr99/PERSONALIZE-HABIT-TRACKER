@@ -13,7 +13,7 @@ export default function Landing({ onGetStarted, onLogin }: LandingProps) {
         <header className="landing-header">
           <div className="landing-logo">
             <span className="landing-logo-icon">🔥</span>
-            <span className="landing-logo-text">Streakly</span>
+            <span className="landing-logo-text">Habit Streak Tracker</span>
           </div>
           <button
             className="btn btn-ghost"
@@ -116,7 +116,7 @@ export default function Landing({ onGetStarted, onLogin }: LandingProps) {
 
         {/* Footer */}
         <footer className="landing-footer">
-          <p>Streakly · Simple habit tracking for real people.</p>
+          <p>Habit Streak Tracker · Simple habit tracking for real people.</p>
         </footer>
       </div>
     </div>

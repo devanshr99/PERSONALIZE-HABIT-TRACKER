@@ -194,19 +194,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
-    const redirectTo = `${window.location.origin}/`;
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo,
-      },
-    });
+    try {
+      const redirectTo = `${window.location.origin}/`;
+      // Initiate OAuth with skipBrowserRedirect: true first to validate provider availability
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo,
+          skipBrowserRedirect: true,
+        },
+      });
 
-    if (error) {
-      return { error: friendlyAuthError(error.message) };
+      if (error) {
+        console.error('Google OAuth initialization error:', error);
+        return { error: friendlyAuthError(error.message) };
+      }
+
+      if (!data?.url) {
+        console.error('No authorization URL returned from Supabase OAuth');
+        return { error: 'Google sign-in is temporarily unavailable. Please try again later.' };
+      }
+
+      // Check if provider is enabled before redirecting the browser
+      try {
+        const checkRes = await fetch(data.url, { method: 'GET', redirect: 'manual' });
+        if (checkRes.status >= 400) {
+          const errBody = await checkRes.json().catch(() => null);
+          console.error('Supabase OAuth endpoint error:', checkRes.status, errBody);
+          const rawMsg = errBody?.msg || errBody?.message || errBody?.error_description || '';
+          return { error: friendlyAuthError(rawMsg || 'Unsupported provider: provider is not enabled') };
+        }
+      } catch (checkErr) {
+        // Cross-origin redirect or network exception during check — proceed with redirection
+        console.debug('Pre-flight check note:', checkErr);
+      }
+
+      // Provider is enabled and validated — redirect browser to Google consent screen
+      window.location.assign(data.url);
+      return {};
+    } catch (err: any) {
+      console.error('Unexpected Google sign-in exception:', err);
+      return { error: friendlyAuthError(err?.message || 'Google sign-in is temporarily unavailable. Please try again later.') };
     }
-
-    return {};
   }, []);
 
   const signOut = useCallback(async () => {
@@ -332,8 +361,13 @@ function friendlyAuthError(msg: string): string {
   if (lower.includes('network') || lower.includes('fetch')) {
     return 'Network error. Please check your connection and try again.';
   }
-  if (lower.includes('oauth') || lower.includes('provider')) {
-    return "Google sign-in couldn't be completed. Please try again.";
+  if (
+    lower.includes('unsupported provider') ||
+    lower.includes('provider is not enabled') ||
+    lower.includes('oauth') ||
+    lower.includes('provider')
+  ) {
+    return 'Google sign-in is temporarily unavailable. Please try again later.';
   }
   return msg;
 }

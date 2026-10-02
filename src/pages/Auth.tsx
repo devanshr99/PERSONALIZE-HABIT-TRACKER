@@ -3,7 +3,7 @@
  * Includes Welcome Back (Login), Create your account ✨ (Sign Up), and Password Reset.
  * Google OAuth + Email/Password authentication.
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 
 interface AuthProps {
@@ -116,6 +116,13 @@ export default function Auth({ mode, onToggleMode, onBack }: AuthProps) {
   const isPasswordLongEnough = password.length >= 6;
   const doPasswordsMatch = password.length > 0 && password === confirmPassword;
 
+  // If the user returns to this tab (e.g. Back button or popup dismiss), reset Google loading
+  useEffect(() => {
+    const handleFocus = () => setGoogleLoading(false);
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, []);
+
   const handleGoogleSignIn = async () => {
     setError(null);
     setGoogleLoading(true);
@@ -125,10 +132,10 @@ export default function Auth({ mode, onToggleMode, onBack }: AuthProps) {
         setError(result.error);
         setGoogleLoading(false);
       }
-      // If no error, the page will redirect to Google OAuth
-      // Don't reset googleLoading here — the page is navigating away
-    } catch {
-      setError("Google sign-in couldn't be completed. Please try again.");
+      // If no error, browser is navigating to Google OAuth
+    } catch (err) {
+      console.error('Unexpected Google sign-in error:', err);
+      setError('Google sign-in is temporarily unavailable. Please try again later.');
       setGoogleLoading(false);
     }
   };

@@ -29,6 +29,7 @@ import {
 } from '../services/db';
 import { scheduleReminder, clearReminder } from '../services/notifications';
 import { useAuth } from './AuthContext';
+import { supabase } from '../services/supabase';
 
 interface AppContextValue {
   habits: Habit[];
@@ -97,14 +98,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setError(null);
 
     try {
-      // 1. Seed defaults only once on first load for new users
-      const seedKey = `streakly_seeded_${user.id}`;
-      if (!localStorage.getItem(seedKey)) {
-        await seedDefaultHabits(user.id);
-        localStorage.setItem(seedKey, 'true');
+      // 1. Verify the Supabase auth session is active before any DB operations.
+      //    This prevents RLS violations where auth.uid() would be NULL.
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) {
+        // Session not ready yet — skip loading and wait for auth listener
+        setLoading(false);
+        return;
       }
 
-      // 2. Fetch habits, completions, and user settings
+      // 2. Seed defaults for new users (the DB function checks if habits already exist)
+      try {
+        await seedDefaultHabits(user.id);
+      } catch (seedErr) {
+        // If seeding fails (e.g. RLS timing), log but don't block the load.
+        // The user can add habits manually or retry.
+        console.warn('Could not seed default habits:', seedErr);
+      }
+
+      // 3. Fetch habits, completions, and user settings
       const [h, c, s] = await Promise.all([
         getAllHabits(user.id),
         getAllCompletions(user.id),

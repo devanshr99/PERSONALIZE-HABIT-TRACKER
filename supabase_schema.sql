@@ -123,16 +123,37 @@ create policy "Users can delete their own settings"
   on public.user_settings for delete
   using (auth.uid() = user_id);
 
--- 5. Auto-create profile on user sign-up
+-- 5. Auto-create profile on user sign-up (Email or Google OAuth)
 create or replace function public.handle_new_user()
 returns trigger as $$
 begin
-  insert into public.profiles (id, name)
-  values (new.id, coalesce(new.raw_user_meta_data->>'name', ''));
-  
+  insert into public.profiles (id, name, avatar_url)
+  values (
+    new.id,
+    coalesce(
+      nullif(new.raw_user_meta_data->>'full_name', ''),
+      nullif(new.raw_user_meta_data->>'name', ''),
+      ''
+    ),
+    coalesce(
+      nullif(new.raw_user_meta_data->>'avatar_url', ''),
+      nullif(new.raw_user_meta_data->>'picture', ''),
+      null
+    )
+  )
+  on conflict (id) do update set
+    name = case
+      when public.profiles.name = '' or public.profiles.name is null
+      then excluded.name
+      else public.profiles.name
+    end,
+    avatar_url = coalesce(public.profiles.avatar_url, excluded.avatar_url),
+    updated_at = now();
+
   insert into public.user_settings (user_id)
-  values (new.id);
-  
+  values (new.id)
+  on conflict (user_id) do nothing;
+
   return new;
 end;
 $$ language plpgsql security definer;

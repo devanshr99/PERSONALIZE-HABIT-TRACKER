@@ -405,11 +405,10 @@ export async function resetAllData(userId: string): Promise<void> {
 // ─── Seed Default Habits ──────────────────────────────────────────────────────
 
 export const DEFAULT_HABITS: Array<{ name: string; icon: string }> = [
-  { name: 'Drink Water', icon: '💧' },
-  { name: 'Study', icon: '📚' },
-  { name: 'Exercise', icon: '🏃' },
-  { name: 'Read', icon: '📖' },
-  { name: 'Meditation', icon: '🧘' },
+  { name: 'Yoga', icon: '🧘' },
+  { name: 'LeetCode', icon: '💻' },
+  { name: 'Drink 3L Water', icon: '💧' },
+  { name: 'Gym', icon: '🏋️' },
 ];
 
 export async function seedDefaultHabits(userId: string): Promise<void> {

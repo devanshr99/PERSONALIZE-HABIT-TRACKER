@@ -11,7 +11,6 @@ import React, {
   type ReactNode
 } from 'react';
 import { supabase } from '../services/supabase';
-import { seedDefaultHabits } from '../services/db';
 import type { User, Session } from '@supabase/supabase-js';
 
 export interface UserProfile {
@@ -28,6 +27,7 @@ interface AuthContextValue {
 
   signUp: (name: string, email: string, password: string) => Promise<{ error?: string }>;
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
+  signInWithGoogle: () => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error?: string }>;
   updateProfile: (updates: { name?: string; avatarUrl?: string }) => Promise<{ error?: string }>;
@@ -42,6 +42,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
+  /**
+   * For Google (or any OAuth) users, ensure a profile row exists.
+   * The DB trigger handles email/password signups, but OAuth users
+   * returning from a redirect may need their profile row created/updated.
+   */
+  const ensureProfileExists = useCallback(async (authUser: User) => {
+    const { data: existing } = await supabase
+      .from('profiles')
+      .select('id, name, avatar_url')
+      .eq('id', authUser.id)
+      .maybeSingle();
+
+    const meta = authUser.user_metadata ?? {};
+    const googleName = meta.full_name || meta.name || '';
+    const googleAvatar = meta.avatar_url || meta.picture || '';
+
+    if (!existing) {
+      // Profile row doesn't exist yet — create it
+      await supabase.from('profiles').insert({
+        id: authUser.id,
+        name: googleName,
+        avatar_url: googleAvatar || null,
+      });
+    } else if (!existing.name && googleName) {
+      // Profile exists but name is empty — update with Google info
+      await supabase.from('profiles').update({
+        name: googleName,
+        avatar_url: existing.avatar_url || googleAvatar || null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', authUser.id);
+    }
+  }, []);
+
   // Build a UserProfile from a Supabase user + profile row
   const buildProfile = useCallback(async (authUser: User): Promise<UserProfile> => {
     const { data: profile } = await supabase
@@ -50,11 +83,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .eq('id', authUser.id)
       .single();
 
+    const meta = authUser.user_metadata ?? {};
+    const googleName = meta.full_name || meta.name || '';
+    const googleAvatar = meta.avatar_url || meta.picture || '';
+
     return {
       id: authUser.id,
       email: authUser.email ?? '',
-      name: profile?.name || authUser.user_metadata?.name || '',
-      avatarUrl: profile?.avatar_url || undefined,
+      name: profile?.name || googleName || '',
+      avatarUrl: profile?.avatar_url || googleAvatar || undefined,
     };
   }, []);
 
@@ -88,6 +125,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(newSession);
 
         if (newSession?.user) {
+          // For OAuth sign-ins, ensure the profile row exists
+          if (event === 'SIGNED_IN') {
+            try {
+              await ensureProfileExists(newSession.user);
+            } catch (err) {
+              console.warn('Could not ensure profile for OAuth user:', err);
+            }
+          }
+
           const profile = await buildProfile(newSession.user);
           if (mounted) setUser(profile);
         } else {
@@ -100,7 +146,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, [buildProfile]);
+  }, [buildProfile, ensureProfileExists]);
 
   const signUp = useCallback(async (name: string, email: string, password: string) => {
     const { data, error } = await supabase.auth.signUp({
@@ -115,21 +161,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { error: friendlyAuthError(error.message) };
     }
 
-    // If email confirmation is disabled, user is immediately available
+    // If email confirmation is disabled, user is immediately available.
+    // The session JWT is set asynchronously via onAuthStateChange.
+    // Habit seeding is handled by AppContext once the session is fully active.
     if (data.user) {
-      // Update the profile name
+      // Update the profile name (the trigger already created a row, so this update
+      // will work once the auth listener fires — but it also works inline because
+      // signUp returns a session that the client picks up)
       await supabase
         .from('profiles')
         .update({ name })
         .eq('id', data.user.id);
-
-      // Seed default habits for the new user immediately once
-      try {
-        await seedDefaultHabits(data.user.id);
-        localStorage.setItem(`streakly_seeded_${data.user.id}`, 'true');
-      } catch (seedErr) {
-        console.error('Error seeding default habits on sign up:', seedErr);
-      }
 
       const profile = await buildProfile(data.user);
       setUser(profile);
@@ -142,6 +184,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
+    });
+
+    if (error) {
+      return { error: friendlyAuthError(error.message) };
+    }
+
+    return {};
+  }, []);
+
+  const signInWithGoogle = useCallback(async () => {
+    const redirectTo = `${window.location.origin}/`;
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo,
+      },
     });
 
     if (error) {
@@ -234,6 +292,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading,
         signUp,
         signIn,
+        signInWithGoogle,
         signOut,
         resetPassword,
         updateProfile,
@@ -272,6 +331,9 @@ function friendlyAuthError(msg: string): string {
   }
   if (lower.includes('network') || lower.includes('fetch')) {
     return 'Network error. Please check your connection and try again.';
+  }
+  if (lower.includes('oauth') || lower.includes('provider')) {
+    return "Google sign-in couldn't be completed. Please try again.";
   }
   return msg;
 }

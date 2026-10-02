@@ -9,6 +9,7 @@ import { PwaProvider } from '../context/PwaContext';
 // Mock useAuth
 const mockSignUp = vi.fn().mockResolvedValue({});
 const mockSignIn = vi.fn().mockResolvedValue({});
+const mockSignInWithGoogle = vi.fn().mockResolvedValue({});
 const mockResetPassword = vi.fn().mockResolvedValue({});
 
 vi.mock('../context/AuthContext', () => ({
@@ -17,6 +18,7 @@ vi.mock('../context/AuthContext', () => ({
     loading: false,
     signUp: mockSignUp,
     signIn: mockSignIn,
+    signInWithGoogle: mockSignInWithGoogle,
     signOut: vi.fn(),
     resetPassword: mockResetPassword,
   }),
@@ -33,6 +35,7 @@ describe('Auth Page Component', () => {
 
     expect(screen.getByText('Welcome Back 👋')).toBeInTheDocument();
     expect(screen.getByText('Log in to continue your streaks.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Continue with Google/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/Email Address/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^Password$/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Forgot password\?/i })).toBeInTheDocument();
@@ -54,12 +57,24 @@ describe('Auth Page Component', () => {
 
     expect(screen.getByText('Create your account ✨')).toBeInTheDocument();
     expect(screen.getByText('Start building better habits, one day at a time.')).toBeInTheDocument();
-    expect(screen.getByLabelText(/Full Name/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Continue with Google/i })).toBeInTheDocument();
+    const nameInput = screen.getByLabelText(/Full Name/i) as HTMLInputElement;
+    expect(nameInput).toBeInTheDocument();
+    expect(nameInput.placeholder).toBe('Enter your full name');
+    expect(nameInput.value).toBe('');
     expect(screen.getByLabelText(/Email Address/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^Password$/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Confirm Password/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Create Account$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Log in/i })).toBeInTheDocument();
+  });
+
+  it('triggers signInWithGoogle when clicking Continue with Google', () => {
+    render(<Auth mode="login" onToggleMode={vi.fn()} />);
+
+    const googleBtn = screen.getByRole('button', { name: /Continue with Google/i });
+    fireEvent.click(googleBtn);
+    expect(mockSignInWithGoogle).toHaveBeenCalledTimes(1);
   });
 
   it('toggles password visibility between password and text input', () => {
@@ -80,7 +95,7 @@ describe('Auth Page Component', () => {
   it('validates signup passwords match and displays inline error if mismatch', async () => {
     render(<Auth mode="signup" onToggleMode={vi.fn()} />);
 
-    fireEvent.change(screen.getByLabelText(/Full Name/i), { target: { value: 'Devansh' } });
+    fireEvent.change(screen.getByLabelText(/Full Name/i), { target: { value: 'Alex Morgan' } });
     fireEvent.change(screen.getByLabelText(/Email Address/i), { target: { value: 'test@example.com' } });
     fireEvent.change(screen.getByLabelText(/^Password$/i), { target: { value: 'secret123' } });
     fireEvent.change(screen.getByLabelText(/Confirm Password/i), { target: { value: 'secret456' } });
